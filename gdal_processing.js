@@ -7,14 +7,14 @@ const Jimp = require('jimp');
 let DEFAULT_IMAGE = null;
 
 // cache pour réutiliser les images ouvertes lorsque c'est possible
-let cache = {};
+// let cache = {};
 
 function clearCache() {
   debug('debut de clearCache : ', cache);
-  Object.values(cache).forEach((value) => {
-    value.ds.close();
-  });
-  cache = {};
+  // Object.values(cache).forEach((value) => {
+  //   value.ds.close();
+  // });
+  // cache = {};
   debug('fin de clearCache ');
 }
 
@@ -64,35 +64,35 @@ function getTile(url, x, y, z, blocSize, cacheKey, bands) {
 
   // On ouvre les images si nécessaire
   const withRgb = b.includes(0) || b.includes(1) || b.includes(2);
-  if (withRgb) {
-    if ((cacheKey in cache) && (cache[cacheKey][url] !== url)) {
-      cache[cacheKey].ds.close();
-      delete cache[cacheKey];
-    }
-    if (!(cacheKey in cache)) {
-      cache[cacheKey] = {
-        url,
-        ds: gdal.open(url),
-      };
-    }
-  }
+  // if (withRgb) {
+  //   if ((cacheKey in cache) && (cache[cacheKey][url] !== url)) {
+  //     cache[cacheKey].ds.close();
+  //     delete cache[cacheKey];
+  //   }
+  //   if (!(cacheKey in cache)) {
+  //     cache[cacheKey] = {
+  //       url,
+  //       ds: gdal.open(url),
+  //     };
+  //   }
+  // }
   const withIr = b.includes(3);
-  if (withIr) {
-    if ((cacheKeyIr in cache) && (cache[cacheKeyIr][urlIr] !== urlIr)) {
-      cache[cacheKeyIr].ds.close();
-      delete cache[cacheKeyIr];
-    }
-    if (!(cacheKeyIr in cache)) {
-      cache[cacheKeyIr] = {
-        urlIr,
-        ds: gdal.open(urlIr),
-      };
-    }
-  }
+  // if (withIr) {
+  //   if ((cacheKeyIr in cache) && (cache[cacheKeyIr][urlIr] !== urlIr)) {
+  //     cache[cacheKeyIr].ds.close();
+  //     delete cache[cacheKeyIr];
+  //   }
+  //   if (!(cacheKeyIr in cache)) {
+  //     cache[cacheKeyIr] = {
+  //       urlIr,
+  //       ds: gdal.open(urlIr),
+  //     };
+  //   }
+  // }
 
   debug('fichier ouvert ');
-  const ds = withRgb ? cache[cacheKey].ds : null;
-  const dsIr = withIr ? cache[cacheKeyIr].ds : null;
+  const ds = withRgb ? gdal.open(url) : null;
+  const dsIr = withIr ? gdal.open(urlIr) : null;
   const blocks = {};
   b.forEach((band) => {
     if (band in blocks) return;
@@ -153,7 +153,7 @@ function processPatchAsync(patch, blocSize) {
     // On patch le graph
     const { mask } = patch;
     // On a modifier le cache, donc il faut forcer le refresh
-    cache = {};
+    // cache = {};
 
     // Modification du graph
     debug('ouverture de l image');
