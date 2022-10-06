@@ -10,7 +10,7 @@ let DEFAULT_IMAGE = null;
 // let cache = {};
 
 function clearCache() {
-  debug('debut de clearCache : ', cache);
+  // debug('debut de clearCache : ', cache);
   // Object.values(cache).forEach((value) => {
   //   value.ds.close();
   // });
@@ -44,7 +44,7 @@ function getTile(url, x, y, z, blocSize, cacheKey, bands) {
   }
 
   debug(url, urlIr);
-  const cacheKeyIr = `${cacheKey}_ir`;
+  // const cacheKeyIr = `${cacheKey}_ir`;
 
   if (b.includes(3)) {
     if (!fs.existsSync(urlIr)) {
