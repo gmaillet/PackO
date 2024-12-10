@@ -9,7 +9,7 @@ import glob
 import time
 import numpy as np
 from numpy import base_repr
-from osgeo import gdal
+from osgeo import gdal,ogr
 
 # enable gdal/ogr exceptions
 gdal.UseExceptions()
@@ -150,6 +150,61 @@ def get_slabbox(filename, overviews):
                           overviews['dataSet']['slabLimits'][str(slab_z)]['MaxSlabRow'])
 
     return slabbox
+
+def set_limits(tile_limits, overviews):
+    """Get the Min/MaxTileRow/Col at all levels"""
+    nb_level_cog = get_slabdepth(overviews['slabSize'])
+    overviews['dataSet']['boundingBox'] = tile_limits
+    
+    for slab_z in range(overviews['dataSet']['level']['min'],
+                        overviews['dataSet']['level']['max'] + 1):
+        resolution = overviews['resolution'] * 2 ** (overviews['level']['max'] - slab_z)
+
+        min_tile_col = math.floor(round((tile_limits['LowerCorner'][0] -
+                                         overviews['crs']['boundingBox']['xmin'])
+                                        / (resolution * overviews['tileSize']['width']), 8))
+        min_tile_row = math.floor(round((overviews['crs']['boundingBox']['ymax'] -
+                                         tile_limits['UpperCorner'][1])
+                                        / (resolution * overviews['tileSize']['height']), 8))
+        max_tile_col = math.ceil(round((tile_limits['UpperCorner'][0] -
+                                        overviews['crs']['boundingBox']['xmin'])
+                                       / (resolution * overviews['tileSize']['width']), 8)) - 1
+        max_tile_row = math.ceil(round((overviews['crs']['boundingBox']['ymax'] -
+                                        tile_limits['LowerCorner'][1])
+                                       / (resolution * overviews['tileSize']['height']), 8)) - 1
+
+        overviews['dataSet']['limits'][str(slab_z)] = {
+            'MinTileCol': min_tile_col,
+            'MinTileRow': min_tile_row,
+            'MaxTileCol': max_tile_col,
+            'MaxTileRow': max_tile_row,
+        }
+
+        if slab_z % nb_level_cog == overviews['dataSet']['level']['max'] % nb_level_cog:
+
+            min_slab_col = math.floor(round((tile_limits['LowerCorner'][0] -
+                                             overviews['crs']['boundingBox']['xmin'])
+                                            / (resolution * overviews['tileSize']['width']
+                                               * overviews['slabSize']['width']), 8))
+            min_slab_row = math.floor(round((overviews['crs']['boundingBox']['ymax'] -
+                                             tile_limits['UpperCorner'][1])
+                                            / (resolution * overviews['tileSize']['height']
+                                               * overviews['slabSize']['height']), 8))
+            max_slab_col = math.ceil(round((tile_limits['UpperCorner'][0] -
+                                            overviews['crs']['boundingBox']['xmin'])
+                                           / (resolution * overviews['tileSize']['width']
+                                              * overviews['slabSize']['width']), 8)) - 1
+            max_slab_row = math.ceil(round((overviews['crs']['boundingBox']['ymax'] -
+                                            tile_limits['LowerCorner'][1])
+                                           / (resolution * overviews['tileSize']['height']
+                                              * overviews['slabSize']['height']), 8)) - 1
+
+            overviews['dataSet']['slabLimits'][str(slab_z)] = {
+                'MinSlabCol': min_slab_col,
+                'MinSlabRow': min_slab_row,
+                'MaxSlabCol': max_slab_col,
+                'MaxSlabRow': max_slab_row
+            }
 
 
 def new_color(image, color_dict):
@@ -362,101 +417,67 @@ def update_graph_and_ortho(filename_rgb, filename_ir, gdal_img, color):
             gdal_img['ortho_ir'].GetRasterBand(i + 1).WriteArray(np.add(opi_i, ortho_i))
 
 
-def create_ortho_and_graph_1arg(arg):
-    """Create ortho and graph on a specified slab"""
-
+def create_graph_1arg(arg):
+    """Create graph on a specified slab"""
+    # print(arg)
     overviews = arg['overviews']
 
     # on cree le graphe et l'ortho
-    first_opi = list(overviews["list_OPI"].values())[0]
-    with_rgb = first_opi['with_rgb']
-    with_ir = first_opi['with_ir']
-    img_ortho_rgb = None
-    if with_rgb:
-        img_ortho_rgb = create_blank_slab(overviews, arg['slab'],
-                                          3, arg['gdalOption']['spatialRef'])
-    img_ortho_ir = None
-    if with_ir:
-        img_ortho_ir = create_blank_slab(overviews, arg['slab'],
-                                         1, arg['gdalOption']['spatialRef'])
     img_graph = create_blank_slab(overviews, arg['slab'],
                                   3, arg['gdalOption']['spatialRef'])
 
     slab_path = get_slab_path(arg['slab']['x'], arg['slab']['y'], overviews['pathDepth'])
-    slab_opi_root = arg['cache'] + '/opi/' + str(arg['slab']['level']) + '/' + slab_path
-    slab_ortho_rgb = arg['cache'] + '/ortho/' + str(arg['slab']['level']) + '/' + slab_path + '.tif'
-    slab_ortho_ir = arg['cache'] + '/ortho/' + str(arg['slab']['level']) + '/' + slab_path + 'i.tif'
     slab_graph = arg['cache'] + '/graph/' + str(arg['slab']['level']) + '/' + slab_path + '.tif'
     is_empty = True
 
-    for filename in glob.glob(slab_opi_root + '*.tif'):
-        stem = Path(filename).stem[3:]
-        if stem in overviews["list_OPI"]:
-            color = overviews["list_OPI"][stem]["color"]
-            filename_rgb = filename
-            filename_ir = None
-            if not with_rgb:
-                filename_ir = filename
-                filename_rgb = None
-            elif with_ir:
-                filename_ir = os.path.join(os.path.dirname(filename),
-                                           os.path.basename(filename.replace('x', '_ix')))
+    # il faut selectionner la liste des images dans le slab
+    db_graph = gdal.OpenEx(arg['dbOption']['connString'], gdal.OF_VECTOR)
+    # la bbox
+    xmin = overviews['crs']['boundingBox']['xmin']\
+        + arg['slab']['x'] * arg['slab']['resolution']\
+        * overviews['tileSize']['width']\
+        * overviews['slabSize']['width']
+    ymax = overviews['crs']['boundingBox']['ymax']\
+        - arg['slab']['y'] * arg['slab']['resolution']\
+        * overviews['tileSize']['height']\
+        * overviews['slabSize']['height']
+    dx = overviews['tileSize']['width'] * overviews['slabSize']['width'] * arg['slab']['resolution']
+    dy = overviews['tileSize']['height'] * overviews['slabSize']['height'] * arg['slab']['resolution']
+    # print('BBox: ', xmin, ymax, dx, dy)
+    
+    # Appliquer le filtre spatial
+    graph_layer = db_graph.GetLayer(arg['dbOption']['table'])
+    # graph_layer.SetSpatialFilter(bbox_geom)
+    graph_layer.SetSpatialFilterRect(xmin, ymax-dy,xmin+dx,ymax)
+    geom_name = graph_layer.GetGeometryColumn()
 
-            # on cree une image mono canal pour la tuile
-            mask = create_blank_slab(overviews, arg['slab'], 1, arg['gdalOption']['spatialRef'])
-
-            # on rasterise la partie du graphe qui concerne ce cliche
-            db_graph = gdal.OpenEx(arg['dbOption']['connString'], gdal.OF_VECTOR)
-
-            # on veut recuperer le bon nom des geometries sur le graphe en entree
-            layer = db_graph.GetLayer(0)  # un seul layer dans un graphe
-            geom_name = layer.GetGeometryColumn()
-
-            # requete sql adaptee pour marcher avec des nomenclatures du type
-            # 20FD1325x00001_02165 ou OPI_20FD1325x00001_02165
-            # attention, le graph contient peut-etre des reférences aux images RGB
-            # alors que les fichiers sont peut-être des IR
-            stem_cleaned1 = stem.replace("OPI_", "")
-            stem_cleaned2 = stem.replace("OPI_", "").replace("_ix", "x")
-            gdal.Rasterize(mask,
-                           db_graph,
-                           SQLStatement=f'select {geom_name} from '
-                           + arg['dbOption']['table']
-                           + ' where cliche like \'%' + stem_cleaned1 + '%\''
-                           + ' or cliche like \'%' + stem_cleaned2 + '%\'')
-            img_mask = mask.GetRasterBand(1).ReadAsArray()
-            # si mask est vide, on ne fait rien
-            val_max = np.amax(img_mask)
-            if val_max > 0:
-                is_empty = False
-                update_graph_and_ortho(filename_rgb,
-                                       filename_ir,
-                                       {'ortho_rgb': img_ortho_rgb,
-                                        'ortho_ir': img_ortho_ir,
-                                        'graph': img_graph,
-                                        'mask': img_mask},
-                                       color)
+    # Parcourir les features filtrées
+    for feature in graph_layer:
+        cliche = feature.GetField('cliche')
+        color = overviews["list_OPI"][cliche]["color"]
+        # print(cliche, color)
+        # on cree une image mono canal pour la tuile
+        mask = create_blank_slab(overviews, arg['slab'], 1, arg['gdalOption']['spatialRef'])
+        gdal.Rasterize(mask,
+                        db_graph,
+                        SQLStatement=f'select {geom_name} from '
+                        + arg['dbOption']['table']
+                        + ' where cliche like \'%' + cliche + '%\'')
+        img_mask = mask.GetRasterBand(1).ReadAsArray()
+        # si mask est vide, on ne fait rien
+        val_max = np.amax(img_mask)
+        if val_max > 0:
+            is_empty = False
+            for i in range(3):
+                graph_i = img_graph.GetRasterBand(i + 1).ReadAsArray()
+                graph_i[(img_mask != 0)] = color[i]
+                img_graph.GetRasterBand(i + 1).WriteArray(graph_i)
 
     if not is_empty:
-        # si necessaire on cree les dossiers de tuile pour le graph et l'ortho
+        # si necessaire on cree les dossiers de tuile pour le graph
         Path(slab_graph).parent.mkdir(parents=True, exist_ok=True)
-        Path(slab_ortho_rgb).parent.mkdir(parents=True, exist_ok=True)
-        Path(slab_ortho_ir).parent.mkdir(parents=True, exist_ok=True)
         # pylint: disable=unused-variable
         assert_square(overviews['tileSize'])
-
-        if img_ortho_rgb:
-            dst_ortho_rgb = COG_DRIVER.CreateCopy(slab_ortho_rgb, img_ortho_rgb,
-                                                  options=["BLOCKSIZE="
-                                                           + str(overviews['tileSize']['width']),
-                                                           "COMPRESS=JPEG", "QUALITY=90"])
-            dst_ortho_rgb = None  # noqa: F841
-        if img_ortho_ir:
-            dst_ortho_ir = COG_DRIVER.CreateCopy(slab_ortho_ir, img_ortho_ir,
-                                                 options=["BLOCKSIZE="
-                                                          + str(overviews['tileSize']['width']),
-                                                          "COMPRESS=JPEG", "QUALITY=90"])
-            dst_ortho_ir = None  # noqa: F841
         dst_graph = COG_DRIVER.CreateCopy(slab_graph, img_graph,
                                           options=["BLOCKSIZE="
                                                    + str(overviews['tileSize']['width']),
@@ -466,8 +487,4 @@ def create_ortho_and_graph_1arg(arg):
 
         dst_graph = None  # noqa: F841
         # pylint: enable=unused-variable
-    if img_ortho_rgb:
-        img_ortho_rgb = None
-    if img_ortho_ir:
-        img_ortho_ir = None
     img_graph = None
