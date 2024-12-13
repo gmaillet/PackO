@@ -1,6 +1,6 @@
 # coding: utf-8
-"""This script creates a cache with a list of OPI"""
+"""This script creates a cache from a graph"""
 import cache
 
 if __name__ == "__main__":
-    cache.generate(update=False)
+    cache.init_cache_from_graph()

@@ -47,59 +47,9 @@ def get_slabbox(filename, overviews):
     slabbox = {}
     tile_limits = get_tile_limits(filename)
 
-    if "LowerCorner" not in overviews['dataSet']['boundingBox']:
-        overviews['dataSet']['boundingBox'] = tile_limits
-    else:
-        overviews['dataSet']['boundingBox']['LowerCorner'][0]\
-            = min(tile_limits['LowerCorner'][0],
-                  overviews['dataSet']['boundingBox']['LowerCorner'][0])
-        overviews['dataSet']['boundingBox']['LowerCorner'][1]\
-            = min(tile_limits['LowerCorner'][1],
-                  overviews['dataSet']['boundingBox']['LowerCorner'][1])
-        overviews['dataSet']['boundingBox']['UpperCorner'][0]\
-            = max(tile_limits['UpperCorner'][0],
-                  overviews['dataSet']['boundingBox']['UpperCorner'][0])
-        overviews['dataSet']['boundingBox']['UpperCorner'][1]\
-            = max(tile_limits['UpperCorner'][1],
-                  overviews['dataSet']['boundingBox']['UpperCorner'][1])
-
     for slab_z in range(overviews['dataSet']['level']['min'],
                         overviews['dataSet']['level']['max'] + 1):
         resolution = overviews['resolution'] * 2 ** (overviews['level']['max'] - slab_z)
-
-        min_tile_col = math.floor(round((tile_limits['LowerCorner'][0] -
-                                         overviews['crs']['boundingBox']['xmin'])
-                                        / (resolution * overviews['tileSize']['width']), 8))
-        min_tile_row = math.floor(round((overviews['crs']['boundingBox']['ymax'] -
-                                         tile_limits['UpperCorner'][1])
-                                        / (resolution * overviews['tileSize']['height']), 8))
-        max_tile_col = math.ceil(round((tile_limits['UpperCorner'][0] -
-                                        overviews['crs']['boundingBox']['xmin'])
-                                       / (resolution * overviews['tileSize']['width']), 8)) - 1
-        max_tile_row = math.ceil(round((overviews['crs']['boundingBox']['ymax'] -
-                                        tile_limits['LowerCorner'][1])
-                                       / (resolution * overviews['tileSize']['height']), 8)) - 1
-
-        if str(slab_z) not in overviews['dataSet']['limits']:
-            overviews['dataSet']['limits'][str(slab_z)] = {
-                'MinTileCol': min_tile_col,
-                'MinTileRow': min_tile_row,
-                'MaxTileCol': max_tile_col,
-                'MaxTileRow': max_tile_row,
-            }
-        else:
-            overviews['dataSet']['limits'][str(slab_z)]['MinTileCol']\
-                = min(min_tile_col,
-                      overviews['dataSet']['limits'][str(slab_z)]['MinTileCol'])
-            overviews['dataSet']['limits'][str(slab_z)]['MinTileRow']\
-                = min(min_tile_row,
-                      overviews['dataSet']['limits'][str(slab_z)]['MinTileRow'])
-            overviews['dataSet']['limits'][str(slab_z)]['MaxTileCol']\
-                = max(max_tile_col,
-                      overviews['dataSet']['limits'][str(slab_z)]['MaxTileCol'])
-            overviews['dataSet']['limits'][str(slab_z)]['MaxTileRow']\
-                = max(max_tile_row,
-                      overviews['dataSet']['limits'][str(slab_z)]['MaxTileRow'])
 
         if slab_z % nb_level_cog == overviews['dataSet']['level']['max'] % nb_level_cog:
 
@@ -127,29 +77,8 @@ def get_slabbox(filename, overviews):
                 'MaxSlabRow': max_slab_row
             }
             slabbox[str(slab_z)] = slabbox_z
-
-            if str(slab_z) not in overviews['dataSet']['slabLimits']:
-                overviews['dataSet']['slabLimits'][str(slab_z)] = {
-                    'MinSlabCol': min_slab_col,
-                    'MinSlabRow': min_slab_row,
-                    'MaxSlabCol': max_slab_col,
-                    'MaxSlabRow': max_slab_row
-                }
-            else:
-                overviews['dataSet']['slabLimits'][str(slab_z)]['MinSlabCol']\
-                    = min(min_slab_col,
-                          overviews['dataSet']['slabLimits'][str(slab_z)]['MinSlabCol'])
-                overviews['dataSet']['slabLimits'][str(slab_z)]['MinSlabRow']\
-                    = min(min_slab_row,
-                          overviews['dataSet']['slabLimits'][str(slab_z)]['MinSlabRow'])
-                overviews['dataSet']['slabLimits'][str(slab_z)]['MaxSlabCol']\
-                    = max(max_slab_col,
-                          overviews['dataSet']['slabLimits'][str(slab_z)]['MaxSlabCol'])
-                overviews['dataSet']['slabLimits'][str(slab_z)]['MaxSlabRow']\
-                    = max(max_slab_row,
-                          overviews['dataSet']['slabLimits'][str(slab_z)]['MaxSlabRow'])
-
     return slabbox
+
 
 def set_limits(tile_limits, overviews):
     """Get the Min/MaxTileRow/Col at all levels"""
@@ -246,114 +175,6 @@ def assert_square(obj):
         raise ValueError("Object is not square!")
 
 
-def cut_opi_1tile(opi, opi_name, dst_root, slab, nb_bands, gdal_option):
-    """Cut and resample a specified image at a given level"""
-    target_ds = gdal.GetDriverByName('MEM').Create('',
-                                                   slab['size']['width'],
-                                                   slab['size']['height'],
-                                                   nb_bands,
-                                                   gdal.GDT_Byte)
-    target_ds.SetGeoTransform((slab['origin']['x'],
-                               slab['resolution'],
-                               0,
-                               slab['origin']['y'],
-                               0,
-                               -slab['resolution']))
-    target_ds.SetProjection(gdal_option['spatialRef'])
-    target_ds.FlushCache()
-
-    # on reech l'OPI dans cette image
-    gdal.Warp(target_ds, opi)
-
-    # on exporte en png (todo: gerer le niveau de Q)
-    # pylint: disable=unused-variable
-    assert_square(slab['tile_size'])
-    dst_ds = COG_DRIVER.CreateCopy(dst_root + "_" + opi_name + ".tif",
-                                   target_ds,
-                                   options=["BLOCKSIZE="
-                                            + str(slab['tile_size']['width']),
-                                            "COMPRESS=JPEG", "QUALITY=90"])
-    target_ds = None
-    dst_ds = None  # noqa: F841
-    # pylint: enable=unused-variable
-
-
-def cut_image_1arg(arg):
-    """Cut a given image in all corresponding tiles for all levels"""
-    overviews = arg['overviews']
-    input_image_rgb = None
-    if arg['opi']['rgb']:
-        input_image_rgb = gdal.Open(arg['opi']['rgb'])
-    input_image_ir = None
-    if arg['opi']['ir']:
-        input_image_ir = gdal.Open(arg['opi']['ir'])
-    slabbox = arg['slabBox']
-
-    for level in overviews['dataSet']['slabLimits'].keys():
-        level = int(level)
-        tps1_actif = time.process_time()
-        tps1 = time.perf_counter()
-        if arg['verbose'] == 0:
-            if arg['opi']['rgb'] is not None:
-                print('  (', arg['opi']['name_rgb'], ') level : ', level, sep="")
-            else:
-                print('  (', arg['opi']['name_ir'], ') level : ', level, sep="")
-
-        resolution = overviews['resolution'] * 2 ** (overviews['level']['max'] - level)
-
-        for slab_x in range(slabbox[str(level)]['MinSlabCol'],
-                            slabbox[str(level)]['MaxSlabCol'] + 1):
-            for slab_y in range(slabbox[str(level)]['MinSlabRow'],
-                                slabbox[str(level)]['MaxSlabRow'] + 1):
-                slab_param = {
-                    'origin': {
-                        'x':
-                            overviews['crs']['boundingBox']['xmin']
-                            + slab_x * resolution * overviews['tileSize']['width']  # noqa: E131
-                            * overviews['slabSize']['width'],  # noqa: E131
-                        'y':
-                            overviews['crs']['boundingBox']['ymax']
-                            - slab_y * resolution * overviews['tileSize']['height']
-                            * overviews['slabSize']['height']
-                    },
-                    'size': {
-                        'width': overviews['tileSize']['width'] * overviews['slabSize']['width'],
-                        'height': overviews['tileSize']['height'] * overviews['slabSize']['height']
-                    },
-                    'resolution': resolution,
-                    'tile_size': {
-                        'width': overviews['tileSize']['width'],
-                        'height': overviews['tileSize']['height']
-                    }
-                }
-
-                slab_root = arg['cache'] + '/opi/' + str(level) + '/'\
-                    + get_slab_path(slab_x, slab_y, overviews['pathDepth'])
-                # si necessaire, on cree le dossier
-                Path(slab_root[:-2]).mkdir(parents=True, exist_ok=True)
-
-                if input_image_rgb:
-                    cut_opi_1tile(input_image_rgb,
-                                  arg['opi']['name_rgb'],
-                                  slab_root,
-                                  slab_param,
-                                  3,
-                                  arg['gdalOption'])
-                if input_image_ir:
-                    cut_opi_1tile(input_image_ir,
-                                  arg['opi']['name_ir'],
-                                  slab_root,
-                                  slab_param,
-                                  1,
-                                  arg['gdalOption'])
-
-        tps2_actif = time.process_time()
-        tps2 = time.perf_counter()
-        if arg['verbose'] > 0:
-            print('  (', arg['opi']['name_rgb'], ') level : ', level, ' in ', tps2 - tps1,
-                  ' (', tps2_actif - tps1_actif, ')', sep="")
-
-
 def display_bar(current, nb_total, width=50):
     if not nb_total > 0:
         return
@@ -388,33 +209,15 @@ def create_blank_slab(overviews, slab, nb_bands, spatial_ref):
     return target_ds
 
 
-def update_graph_and_ortho(filename_rgb, filename_ir, gdal_img, color):
+def update_ortho(filename, mask, ortho, nb_bands):
     """Apply mask"""
-    for i in range(3):
-        graph_i = gdal_img['graph'].GetRasterBand(i + 1).ReadAsArray()
-
-        graph_i[(gdal_img['mask'] != 0)] = color[i]
-        gdal_img['graph'].GetRasterBand(i + 1).WriteArray(graph_i)
-    if filename_rgb:
-        opi = gdal.Open(filename_rgb)
-        for i in range(3):
-            opi_i = opi.GetRasterBand(i + 1).ReadAsArray()
-            opi_i[(gdal_img['mask'] == 0)] = 0
-
-            ortho_i = gdal_img['ortho_rgb'].GetRasterBand(i + 1).ReadAsArray()
-
-            ortho_i[(gdal_img['mask'] != 0)] = 0
-            gdal_img['ortho_rgb'].GetRasterBand(i + 1).WriteArray(np.add(opi_i, ortho_i))
-    if filename_ir:
-        opi = gdal.Open(filename_ir)
-        for i in range(1):
-            opi_i = opi.GetRasterBand(i + 1).ReadAsArray()
-            opi_i[(gdal_img['mask'] == 0)] = 0
-
-            ortho_i = gdal_img['ortho_ir'].GetRasterBand(i + 1).ReadAsArray()
-
-            ortho_i[(gdal_img['mask'] != 0)] = 0
-            gdal_img['ortho_ir'].GetRasterBand(i + 1).WriteArray(np.add(opi_i, ortho_i))
+    opi = gdal.Open(filename)
+    for i in range(nb_bands):
+        opi_i = opi.GetRasterBand(i + 1).ReadAsArray()
+        opi_i[(mask == 0)] = 0
+        ortho_i = ortho.GetRasterBand(i + 1).ReadAsArray()
+        ortho_i[(mask != 0)] = 0
+        ortho.GetRasterBand(i + 1).WriteArray(np.add(opi_i, ortho_i))
 
 
 def create_graph_1arg(arg):
@@ -422,7 +225,7 @@ def create_graph_1arg(arg):
     # print(arg)
     overviews = arg['overviews']
 
-    # on cree le graphe et l'ortho
+    # on cree le graphe
     img_graph = create_blank_slab(overviews, arg['slab'],
                                   3, arg['gdalOption']['spatialRef'])
 
@@ -443,7 +246,6 @@ def create_graph_1arg(arg):
         * overviews['slabSize']['height']
     dx = overviews['tileSize']['width'] * overviews['slabSize']['width'] * arg['slab']['resolution']
     dy = overviews['tileSize']['height'] * overviews['slabSize']['height'] * arg['slab']['resolution']
-    # print('BBox: ', xmin, ymax, dx, dy)
     
     # Appliquer le filtre spatial
     graph_layer = db_graph.GetLayer(arg['dbOption']['table'])
