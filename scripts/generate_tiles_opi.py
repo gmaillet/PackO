@@ -1,5 +1,5 @@
 # coding: utf-8
-"""This script cut one OPI"""
+"""This script cuts an opi for a group of tiles"""
 import cache
 
 if __name__ == "__main__":

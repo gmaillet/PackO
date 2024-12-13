@@ -290,3 +290,108 @@ def create_graph_1arg(arg):
         dst_graph = None  # noqa: F841
         # pylint: enable=unused-variable
     img_graph = None
+
+
+def create_ortho_1arg(arg):
+    """Create ortho on a specified slab"""
+    # print(arg)
+    overviews = arg['overviews']
+
+    # on cree l'ortho
+    first_opi = list(overviews["list_OPI"].values())[0]
+    with_rgb = first_opi['with_rgb']
+    with_ir = first_opi['with_ir']
+    img_ortho_rgb = None
+    if with_rgb:
+        img_ortho_rgb = create_blank_slab(overviews, arg['slab'],
+                                          3, arg['gdalOption']['spatialRef'])
+    img_ortho_ir = None
+    if with_ir:
+        img_ortho_ir = create_blank_slab(overviews, arg['slab'],
+                                         1, arg['gdalOption']['spatialRef'])
+
+    slab_path = get_slab_path(arg['slab']['x'], arg['slab']['y'], overviews['pathDepth'])
+    slab_opi_root = arg['cache'] + '/opi/' + str(arg['slab']['level']) + '/' + slab_path
+    slab_ortho_rgb = arg['cache'] + '/ortho/' + str(arg['slab']['level']) + '/' + slab_path + '.tif'
+    slab_ortho_ir = arg['cache'] + '/ortho/' + str(arg['slab']['level']) + '/' + slab_path + 'i.tif'
+    slab_graph = arg['cache'] + '/graph/' + str(arg['slab']['level']) + '/' + slab_path + '.tif'
+    # slab_graph = Path(arg['cache'])/'graph'/str(arg['slab']['level'])/slab_path.with_suffix('.tif')
+    is_empty = True
+
+    
+    # si la tuile de graphe n'existe pas, on passe
+    if not os.path.exists(slab_graph):
+        print('la tuile de graph n existe pas')
+        return
+    
+    # on lit le graph de la tuile
+    graph = gdal.Open(slab_graph)
+    graph_img = graph.ReadAsArray()
+    graph = None
+
+    # on selectionne la liste des OPI dispo
+    # todo: on pourrait filtrer la liste des OPI à mettre à jour
+    for filename in glob.glob(slab_opi_root + '*.tif'):
+        print(filename)
+        stem = Path(filename).stem[3:]
+        print(stem)
+        if stem in overviews["list_OPI"]:
+            color = overviews["list_OPI"][stem]["color"]
+            # preparation du masque
+            mask = np.logical_and(graph_img[0] == color[0], np.logical_and(graph_img[1] == color[1], graph_img[2] == color[2]))
+            val_max = np.amax(mask)
+            print(val_max)
+            if val_max == 0:
+                continue
+            is_empty = False
+            filename_rgb = filename
+            filename_ir = None
+            if not with_rgb:
+                filename_ir = filename
+                filename_rgb = None
+            if with_ir:
+                filename_ir = os.path.join(os.path.dirname(filename),
+                                           os.path.basename(filename.replace('x', '_ix')))
+            if with_rgb:
+                opi = gdal.Open(filename_rgb)
+                for i in range(3):
+                    opi_i = opi.GetRasterBand(i + 1).ReadAsArray()
+                    opi_i[(mask == 0)] = 0
+                    ortho_i = img_ortho_rgb.GetRasterBand(i + 1).ReadAsArray()
+                    ortho_i[(mask != 0)] = 0
+                    img_ortho_rgb.GetRasterBand(i + 1).WriteArray(np.add(opi_i, ortho_i))
+                opi = None
+            if with_ir:
+                opi = gdal.Open(filename_ir)
+                for i in range(1):
+                    opi_i = opi.GetRasterBand(i + 1).ReadAsArray()
+                    opi_i[(mask == 0)] = 0
+                    ortho_i = img_ortho_ir.GetRasterBand(i + 1).ReadAsArray()
+                    ortho_i[(mask != 0)] = 0
+                    img_ortho_ir.GetRasterBand(i + 1).WriteArray(np.add(opi_i, ortho_i))
+                opi = None
+    if not is_empty:
+        print("ici", with_rgb, with_ir)
+         # si necessaire on cree les dossiers de tuile pour le graph et l'ortho
+        Path(slab_ortho_rgb).parent.mkdir(parents=True, exist_ok=True)
+        Path(slab_ortho_ir).parent.mkdir(parents=True, exist_ok=True)
+        # pylint: disable=unused-variable
+        assert_square(overviews['tileSize'])
+
+        if with_rgb:
+            print(slab_ortho_rgb)
+            dst_ortho_rgb = COG_DRIVER.CreateCopy(slab_ortho_rgb, img_ortho_rgb,
+                                                  options=["BLOCKSIZE="
+                                                           + str(overviews['tileSize']['width']),
+                                                           "COMPRESS=JPEG", "QUALITY=90"])
+            dst_ortho_rgb = None  # noqa: F841
+        if with_ir:
+            dst_ortho_ir = COG_DRIVER.CreateCopy(slab_ortho_ir, img_ortho_ir,
+                                                 options=["BLOCKSIZE="
+                                                          + str(overviews['tileSize']['width']),
+                                                          "COMPRESS=JPEG", "QUALITY=90"])
+            dst_ortho_ir = None  # noqa: F841
+    if img_ortho_rgb:
+        img_ortho_rgb = None
+    if img_ortho_ir:
+        img_ortho_ir = None
