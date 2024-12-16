@@ -1,7 +1,7 @@
 # coding: utf-8
 """This script contains all functions for the creation and update of a cache"""
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from random import randrange
 import os
 import math
@@ -165,7 +165,9 @@ def get_slab_path(slab_x, slab_y, path_depth):
     str_y = base_repr(slab_y, 36).zfill(path_depth+1)
     slab_path = ''
     for i in range(path_depth+1):
-        slab_path += '/' + str_x[i] + str_y[i]
+        if i!=0:
+            slab_path += '/'
+        slab_path += str_x[i] + str_y[i]
     return slab_path
 
 
@@ -231,6 +233,8 @@ def create_graph_1arg(arg):
 
     slab_path = get_slab_path(arg['slab']['x'], arg['slab']['y'], overviews['pathDepth'])
     slab_graph = arg['cache'] + '/graph/' + str(arg['slab']['level']) + '/' + slab_path + '.tif'
+    print(slab_graph)
+    print(PurePosixPath(slab_graph))
     is_empty = True
 
     # il faut selectionner la liste des images dans le slab
@@ -280,6 +284,7 @@ def create_graph_1arg(arg):
         Path(slab_graph).parent.mkdir(parents=True, exist_ok=True)
         # pylint: disable=unused-variable
         assert_square(overviews['tileSize'])
+        print("create copy ", slab_graph)
         dst_graph = COG_DRIVER.CreateCopy(slab_graph, img_graph,
                                           options=["BLOCKSIZE="
                                                    + str(overviews['tileSize']['width']),

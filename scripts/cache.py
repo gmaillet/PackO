@@ -124,6 +124,7 @@ def read_args(with_images, with_graph, with_tile, with_overview):
                         WHERE EXISTS(SELECT NULL)") is None:
                 raise SystemExit("ERROR: input graph without metadata")
 
+    print(args)
     return args
 
 
@@ -277,7 +278,8 @@ def generate_tiles_graph():
     """rasterize graph for a group of tiles"""
     # with_images, with_graph, with_tile, with_overview
     args = read_args(False, True, True, False)
-    args.cache = os.path.abspath(args.cache)
+    # args.cache = os.path.abspath(args.cache)
+    print('cache : ', args.cache)
     with open(args.cache + '/overviews.json') as json_overviews:
         overviews_dict = json.load(json_overviews)
 
@@ -312,7 +314,7 @@ def generate_tiles_ortho():
     """rasterize ortho for a group of tiles"""
     # with_images, with_graph, with_tile, with_overview
     args = read_args(False, False, True, False)
-    args.cache = os.path.abspath(args.cache)
+    # args.cache = os.path.abspath(args.cache)
     with open(args.cache + '/overviews.json') as json_overviews:
         overviews_dict = json.load(json_overviews)
 
@@ -527,7 +529,7 @@ def create_cache():
                                             str(slab_x) + ' ' + str(slab_y) + ' ' +
                                             str(slab_x_max) + ' ' + str(slab_y_max) + ' -c '+args.cache + ' -R '+filename}
                             )
-        gpao['projects'].append({'name': 'generate_tiles_opi', 'jobs': cmds_generate_opi, 'deps': [{'id': 0}]})
+        gpao['projects'].append({'name': 'generate_tiles_opi', 'jobs': cmds_generate_opi})
 
         # export des ortho
         cmds_generate_ortho = []
@@ -553,7 +555,7 @@ def create_cache():
                                         str(slab_x) + ' ' + str(slab_y) + ' ' +
                                         str(slab_x_max) + ' ' + str(slab_y_max) + ' -c '+args.cache}
                         )
-        gpao['projects'].append({'name': 'generate_tiles_ortho', 'jobs': cmds_generate_ortho, 'deps': [{'id': 1}]})
+        gpao['projects'].append({'name': 'generate_tiles_ortho', 'jobs': cmds_generate_ortho, 'deps': [{'id': 0}, {'id': 1}]})
         with open(args.cache + '/create.json', 'w') as file:
             json.dump(gpao, file)
 
